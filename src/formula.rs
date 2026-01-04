@@ -254,10 +254,10 @@ pub fn contains(i: Index, j: u8, k: Index) -> bool {
   range(i, j).contains(&k)
 }
 
-/// 認証パスの長さを算出します。
+/// 層サンプルの大きさを算出します。
 /// この呼び出しは最悪ケースで O(log n) の計算量です。
 #[inline]
-pub fn auth_path_length(n: Index, i: Index) -> u8 {
+pub fn stratum_sample_size(n: Index, i: Index) -> u8 {
   fn _branch_count(ti: Index, i: Index, j: u8, count: u8) -> u8 {
     if j == 0 {
       count

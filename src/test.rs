@@ -8,7 +8,7 @@ use std::sync::RwLock;
 use std::thread::{JoinHandle, spawn};
 use std::time::Instant;
 
-use crate::formula::{auth_path_length, ceil_log2, total_nodes};
+use crate::formula::{ceil_log2, stratum_sample_size, total_nodes};
 use crate::memory::MemoryDevice;
 use crate::*;
 
@@ -606,33 +606,33 @@ fn walk_down_all_nodes() {
 }
 
 #[test]
-fn generate_auth_path() {
-  // auth path cannot obtain from empty tree
+fn generate_stratum_sample() {
+  // sample cannot obtain from empty tree
   let storage = BlockStorage::memory();
   let mut db = Slate::new(storage).unwrap();
   let snapshot = db.snapshot();
   let mut query = snapshot.query().unwrap();
-  assert_eq!(None, query.get_auth_path(0).unwrap());
-  assert_eq!(None, query.get_auth_path(1).unwrap());
+  assert_eq!(None, query.get_sample(0).unwrap());
+  assert_eq!(None, query.get_sample(1).unwrap());
 
   for n in 1..=64 {
     db.append(&[n - 1]).unwrap();
     let snapshot = db.snapshot();
     let mut query = snapshot.query().unwrap();
-    assert!(query.get_auth_path(0).unwrap().is_none());
+    assert!(query.get_sample(0).unwrap().is_none());
     for i in 1..=n {
-      let auth = query.get_auth_path(i as Index).unwrap().unwrap();
-      assert_eq!(i as Index, auth.leaf.i);
-      assert_eq!(vec![i - 1], auth.leaf.value);
-      assert_eq!(auth_path_length(n as Index, i as Index), auth.witnesses.len() as u8, "{n}: {auth:?}");
+      let sample = query.get_sample(i as Index).unwrap().unwrap();
+      assert_eq!(i as Index, sample.leaf.i);
+      assert_eq!(vec![i - 1], sample.leaf.value);
+      assert_eq!(stratum_sample_size(n as Index, i as Index), sample.witnesses.len() as u8, "{n}: {sample:?}");
     }
-    assert!(query.get_auth_path(n as Index + 1).unwrap().is_none());
+    assert!(query.get_sample(n as Index + 1).unwrap().is_none());
   }
 }
 
 #[test]
-fn compare_auth_path() {
-  // generate auth pathes from the same trees and confirm that they match
+fn compare_stratum_sample() {
+  // generate samples from the same trees and confirm that they match
   let mut db1 = Slate::new(BlockStorage::memory()).unwrap();
   let mut db2 = Slate::new(BlockStorage::memory()).unwrap();
   for n in 1..=64 {
@@ -643,18 +643,18 @@ fn compare_auth_path() {
     let mut q1 = s1.query().unwrap();
     let mut q2 = s2.query().unwrap();
     for i in 1..=n {
-      let auth1 = q1.get_auth_path(i as Index).unwrap().unwrap();
-      let auth2 = q2.get_auth_path(i as Index).unwrap().unwrap();
+      let sample1 = q1.get_sample(i as Index).unwrap().unwrap();
+      let sample2 = q2.get_sample(i as Index).unwrap().unwrap();
       assert_eq!(db1.root(), db2.root());
-      assert_eq!(auth1.root_hash().unwrap(), auth2.root_hash().unwrap());
-      assert_eq!(db1.root().unwrap().hash, auth1.root_hash().unwrap());
-      assert_eq!(Prove::Identical, auth1.prove(&auth2).unwrap());
+      assert_eq!(sample1.root_hash().unwrap(), sample2.root_hash().unwrap());
+      assert_eq!(db1.root().unwrap().hash, sample1.root_hash().unwrap());
+      assert_eq!(Prove::Identical, sample1.compare(&sample2).unwrap());
     }
   }
 }
 
 #[test]
-fn detect_differences_in_auth_paths() {
+fn detect_differences_in_stratum_samples() {
   const N: Index = 1024;
   let rand = splitmix64(1231239999);
   let garbling_index = rand % N + 1;
@@ -679,16 +679,16 @@ fn detect_differences_in_auth_paths() {
   let mut q1 = s1.query().unwrap();
   let mut q2 = s2.query().unwrap();
   for i in 1..=N {
-    let auth1 = q1.get_auth_path(i as Index).unwrap().unwrap();
-    let auth2 = q2.get_auth_path(i as Index).unwrap().unwrap();
+    let sample1 = q1.get_sample(i as Index).unwrap().unwrap();
+    let sample2 = q2.get_sample(i as Index).unwrap().unwrap();
     assert_ne!(db1.root(), db2.root());
-    assert_ne!(auth1.root_hash().unwrap(), auth2.root_hash().unwrap());
-    assert_eq!(db1.root().unwrap().hash, auth1.root_hash().unwrap());
-    assert_eq!(db2.root().unwrap().hash, auth2.root_hash().unwrap());
-    match auth1.prove(&auth2).unwrap() {
+    assert_ne!(sample1.root_hash().unwrap(), sample2.root_hash().unwrap());
+    assert_eq!(db1.root().unwrap().hash, sample1.root_hash().unwrap());
+    assert_eq!(db2.root().unwrap().hash, sample2.root_hash().unwrap());
+    match sample1.compare(&sample2).unwrap() {
       Prove::Identical => panic!(),
       Prove::Divergent(divergents) => {
-        assert_eq!(1, divergents.len(), "{auth1:?} {auth2:?}");
+        assert_eq!(1, divergents.len(), "{sample1:?} {sample2:?}");
         let (i, j) = divergents[0];
         assert!(contains(i, j, garbling_index));
       }
@@ -696,11 +696,11 @@ fn detect_differences_in_auth_paths() {
   }
 
   // find the index of different leaf nodes
-  let mut auth1 = q1.get_auth_path(s1.revision()).unwrap().unwrap();
+  let mut sample1 = q1.get_sample(s1.revision()).unwrap().unwrap();
   let mut steps = 0;
   let detected_i = loop {
-    let auth2 = q2.get_auth_path(auth1.leaf.i).unwrap().unwrap();
-    let (i, j) = match auth2.prove(&auth1).unwrap() {
+    let sample2 = q2.get_sample(sample1.leaf.i).unwrap().unwrap();
+    let (i, j) = match sample2.compare(&sample1).unwrap() {
       Prove::Divergent(divergents) => divergents[0],
       Prove::Identical => panic!(),
     };
@@ -708,7 +708,7 @@ fn detect_differences_in_auth_paths() {
     if j == 0 {
       break i;
     }
-    auth1 = q1.get_auth_path(i).unwrap().unwrap();
+    sample1 = q1.get_sample(i).unwrap().unwrap();
   };
   println!("{steps} interactions");
   assert_eq!(garbling_index, detected_i);

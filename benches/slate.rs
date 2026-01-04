@@ -93,9 +93,9 @@ fn prove(c: &mut Criterion) {
 
       let mut base_i = ITER_SIZE as u64;
       let _the_smallest_i_with_a_different_value = loop {
-        let auth1 = queries.get_mut(i1).unwrap().get_auth_path(base_i).unwrap().unwrap();
-        let auth2 = queries.get_mut(i2).unwrap().get_auth_path(auth1.leaf.i).unwrap().unwrap();
-        match auth1.prove(&auth2).unwrap() {
+        let sample1 = queries.get_mut(i1).unwrap().get_sample(base_i).unwrap().unwrap();
+        let sample2 = queries.get_mut(i2).unwrap().get_sample(sample1.leaf.i).unwrap().unwrap();
+        match sample1.compare(&sample2).unwrap() {
           Prove::Identical => {
             break None;
           }

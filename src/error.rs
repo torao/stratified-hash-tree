@@ -36,9 +36,9 @@ pub enum Error {
   #[error("INCONSISTENCY STATE: between the internally state and the data in storage; {message}")]
   InternalStateInconsistency { message: String },
 
-  // 認証パス比較時のエラー
+  // 層サンプル比較時のエラー
   #[error("{0}")]
-  AuthPathVerificationFailed(String),
+  SampleVerificationFailed(String),
 
   /// 不正なパラメータ指定
   #[error("{0}")]

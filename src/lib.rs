@@ -696,21 +696,21 @@ pub enum Prove {
   Divergent(Vec<(Index, u8)>),
 }
 
-/// The authentication path to a specific leaf in a specific revision.
+/// The stratum sample representing an authentication path to a specific leaf in a specific revision.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct AuthPath {
+pub struct StratumSample {
   pub revision: Index,
   pub leaf: Value,
   pub witnesses: HashMap<(Index, u8), Hash>,
 }
 
-impl AuthPath {
+impl StratumSample {
   fn new(revision: Index, leaf: Value, witnesses: HashMap<(Index, u8), Hash>) -> Self {
-    AuthPath { revision, leaf, witnesses }
+    StratumSample { revision, leaf, witnesses }
   }
 
-  /// Calculates the root hash from this authentication path and returns it.
-  /// This returns an error if the authentication path structure is invalid.
+  /// Calculates the root hash from this sample and returns it.
+  /// This returns an error if the stratum sample structure is invalid.
   pub fn root_hash(&self) -> Result<Hash> {
     let (i, j) = root_of(self.revision);
     self.compute_hash(i, j)
@@ -721,8 +721,8 @@ impl AuthPath {
       if self.leaf.i == i {
         Ok(self.leaf.hash())
       } else {
-        Err(Error::AuthPathVerificationFailed(format!(
-          "The authentication path structure is incorrect: This path is for b_{}, but b_{} is stored",
+        Err(Error::SampleVerificationFailed(format!(
+          "The sample structure is incorrect: This path is for b_{}, but b_{} is stored",
           i, self.leaf.i
         )))
       }
@@ -737,15 +737,15 @@ impl AuthPath {
         let right = self.compute_hash(ir, jr)?;
         Ok(left.combine(&right))
       } else {
-        Err(Error::AuthPathVerificationFailed(format!(
-          "The authentication path structure is incorrect: The leaf node b_{} is not contained",
+        Err(Error::SampleVerificationFailed(format!(
+          "The stratum sample structure is incorrect: The leaf node b_{} is not contained",
           self.leaf.i
         )))
       }
     }
   }
 
-  /// Compare the two authentication paths and confirm that the Merkle trees that generated them are the same.
+  /// Compare the two stratum samples and confirm that the Merkle trees that generated them are the same.
   /// If they don't match, collect the positions of intermediate or leaf node containing the mismatched leaves and
   /// return [Prove::Divergent].
   ///
@@ -768,18 +768,18 @@ impl AuthPath {
   /// let mut i = revision;       // the initial value can be any available index
   /// let mut interactions = 0;
   /// let proved_index = loop {
-  ///   // First, the client creates an authentication path to the index containing the difference.
+  ///   // First, the client creates a stratum sample to the index containing the difference.
   ///   let snapshot = client.snapshot_at(revision).unwrap();
   ///   let mut query = snapshot.query().unwrap();
-  ///   let auth_path = query.get_auth_path(i).unwrap().unwrap();
-  ///   // Here, the client sends the authentication path to the server.
+  ///   let sample = query.get_sample(i).unwrap().unwrap();
+  ///   // Here, the client sends the stratum sample to the server.
   ///   interactions += 1;
   ///
-  ///   // Next, the server identifies nodes containing differences from the received authentication path.
-  ///   let snapshot = server.snapshot_at(auth_path.revision).unwrap();
+  ///   // Next, the server identifies nodes containing differences from the received sample.
+  ///   let snapshot = server.snapshot_at(sample.revision).unwrap();
   ///   let mut query = snapshot.query().unwrap();
-  ///   let server_auth_path = query.get_auth_path(auth_path.leaf.i).unwrap().unwrap();
-  ///   match server_auth_path.prove(&auth_path).unwrap() {
+  ///   let server_sample = query.get_sample(sample.leaf.i).unwrap().unwrap();
+  ///   match server_sample.compare(&sample).unwrap() {
   ///     Prove::Divergent(diffs) => {
   ///       // NOTE: In this example, only one node detected because there is only one difference in leaves, but if
   ///       // there are differences in multiple leaves, there will be multiple nodes.
@@ -798,20 +798,20 @@ impl AuthPath {
   /// println!("a difference detected after {interactions} interactions."); // 4 interactions
   /// assert_eq!(199, proved_index);
   /// ```
-  pub fn prove(&self, other: &AuthPath) -> Result<Prove> {
+  pub fn compare(&self, other: &StratumSample) -> Result<Prove> {
     if self.revision != other.revision {
-      return Err(Error::AuthPathVerificationFailed(format!(
+      return Err(Error::SampleVerificationFailed(format!(
         "The revisions being compared are different: {} != {}",
         self.revision, other.revision
       )));
     } else if self.leaf.i != other.leaf.i {
-      return Err(Error::AuthPathVerificationFailed(format!(
-        "The different authentication path between {} and {} in revisions {} cannot be compared",
+      return Err(Error::SampleVerificationFailed(format!(
+        "The different stratum sample between {} and {} in revisions {} cannot be compared",
         self.leaf.i, other.leaf.i, self.revision
       )));
     }
 
-    // Note that the structure of both authentication paths is verified to be correct by calculating the root hash.
+    // Note that the structure of both stratum samples is verified to be correct by calculating the root hash.
     if self.root_hash()? == other.root_hash()? {
       return Ok(Prove::Identical);
     }
@@ -976,8 +976,8 @@ impl<S: Storage<Entry>> Query<S> {
     result
   }
 
-  // 指定されたデータ b_i とその認証パスを取得します。
-  pub fn get_auth_path(&mut self, i: Index) -> Result<Option<AuthPath>> {
+  // 指定されたデータ b_i とその層サンプルを取得します。
+  pub fn get_sample(&mut self, i: Index) -> Result<Option<StratumSample>> {
     let mut witnesses = HashMap::new();
     let mut leaf_data = None;
     self.walk_down(&mut |_n, bi, bj, hash, value| {
@@ -994,7 +994,7 @@ impl<S: Storage<Entry>> Query<S> {
     Ok(leaf_data.map(|data| {
       let revision = self.revision();
       let leaf = Value { i, value: data };
-      AuthPath::new(revision, leaf, witnesses)
+      StratumSample::new(revision, leaf, witnesses)
     }))
   }
 
