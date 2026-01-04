@@ -385,7 +385,7 @@ pub fn verify_storage_spec<S: Storage<Entry> + Debug>(storage: &mut S) {
       assert_eq!(0, entry.enode.meta.address.j);
       assert_eq!(position, entry.enode.meta.address.position);
       assert_eq!(&value, &entry.enode.payload);
-      let hash = Hash::from_bytes(&value);
+      let hash = Hash::from_bytes(0, &value);
       assert_eq!(hash, entry.enode.meta.hash);
       assert_eq!(&expected, &entry);
     }
@@ -718,7 +718,7 @@ fn build_entry(i: Index, value: &[u8], positions: &[Index]) -> Entry {
   let position = positions[i as usize - 1];
   let model = Model::new(i);
   let enode =
-    ENode { meta: MetaInfo::new(Address::new(i, 0, position), Hash::from_bytes(value)), payload: value.to_vec() };
+    ENode { meta: MetaInfo::new(Address::new(i, 0, position), Hash::from_bytes(0, value)), payload: value.to_vec() };
   let inodes = model
     .inodes()
     .iter()

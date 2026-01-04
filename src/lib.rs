@@ -79,7 +79,7 @@ impl Node {
     debug_assert!(self.j >= right.j);
     let i = right.i;
     let j = self.j + 1;
-    let hash = self.hash.combine(&right.hash);
+    let hash = self.hash.combine(j, &right.hash);
     Node::new(i, j, hash)
   }
 }
@@ -105,7 +105,7 @@ impl Value {
   }
   /// この値のハッシュ値を算出します。
   pub fn hash(&self) -> Hash {
-    Hash::from_bytes(&self.value)
+    Hash::from_bytes(0, &self.value)
   }
   pub fn to_node(&self) -> Node {
     Node::new(self.i, 0u8, self.hash())
@@ -181,6 +181,7 @@ pub struct Hash {
 }
 
 impl Hash {
+  /// ハッシュ値のバイト長を表す定数λです。
   pub const SIZE: usize = if cfg!(feature = "blake3") {
     blake3::OUT_LEN
   } else if cfg!(feature = "sha512") {
@@ -202,32 +203,36 @@ impl Hash {
   }
 
   /// 指定された値をハッシュ化します。
-  pub fn from_bytes(value: &[u8]) -> Hash {
+  pub fn from_bytes(j: u8, value: &[u8]) -> Hash {
     if cfg!(feature = "blake3") {
-      blake3::hash(value).as_bytes().into()
+      let mut hasher = blake3::Hasher::new();
+      hasher.update(&[j]);
+      hasher.update(value);
+      hasher.finalize().as_bytes().into()
     } else if cfg!(feature = "sha512") {
       use sha2::Digest;
-      let hash: [u8; 64] = sha2::Sha512::digest(value).into();
+      let hash: [u8; 64] = sha2::Sha512::new().chain_update(&[j]).chain_update(value).finalize().into();
       (&hash).into()
     } else if cfg!(feature = "sha256") {
       use sha2::Digest;
-      let hash: [u8; 32] = sha2::Sha256::digest(value).into();
+      let hash: [u8; 32] = sha2::Sha256::new().chain_update(&[j]).chain_update(value).finalize().into();
       (&hash).into()
     } else if cfg!(feature = "sha512_256") {
       use sha2::Digest;
-      let hash: [u8; 32] = sha2::Sha512_256::digest(value).into();
+      let hash: [u8; 32] = sha2::Sha512_256::new().chain_update(&[j]).chain_update(value).finalize().into();
       (&hash).into()
     } else if cfg!(feature = "sha224") {
       use sha2::Digest;
-      let hash: [u8; 28] = sha2::Sha224::digest(value).into();
+      let hash: [u8; 28] = sha2::Sha224::new().chain_update(&[j]).chain_update(value).finalize().into();
       (&hash).into()
     } else if cfg!(feature = "sha512_224") {
       use sha2::Digest;
-      let hash: [u8; 28] = sha2::Sha512_224::digest(value).into();
+      let hash: [u8; 28] = sha2::Sha512_224::new().chain_update(&[j]).chain_update(value).finalize().into();
       (&hash).into()
     } else if cfg!(feature = "highwayhash64") {
       use highway::HighwayHash;
       let mut builder = highway::HighwayHasher::default();
+      builder.write_all(&[j]).unwrap();
       builder.write_all(value).unwrap();
       (&builder.finalize64().to_le_bytes()).into()
     } else {
@@ -235,12 +240,12 @@ impl Hash {
     }
   }
 
-  /// 指定されたハッシュ値と連結したハッシュ値 `hash(self.hash || other.hash)` を算出します。
-  pub fn combine(&self, other: &Hash) -> Hash {
+  /// 指定されたハッシュ値と連結したハッシュ値 `hash(j || self.hash || other.hash)` を算出します。
+  pub fn combine(&self, j: u8, other: &Hash) -> Hash {
     let mut value = [0u8; Hash::SIZE * 2];
     value[..Hash::SIZE].copy_from_slice(&self.value);
     value[Hash::SIZE..].copy_from_slice(&other.value);
-    Hash::from_bytes(&value)
+    Hash::from_bytes(j, &value)
   }
 
   pub fn to_str(&self) -> String {
@@ -521,7 +526,7 @@ impl<S: Storage<Entry>> Slate<S> {
     // 葉ノードの構築
     let position = self.position;
     let i = self.cache.root().map(|node| node.address.i + 1).unwrap_or(1);
-    let hash = Hash::from_bytes(value);
+    let hash = Hash::from_bytes(0, value);
     let meta = MetaInfo::new(Address::new(i, 0, position), hash);
     let enode = ENode { meta, payload: Vec::from(value) };
 
@@ -541,7 +546,7 @@ impl<S: Storage<Entry>> Slate<S> {
 
       // 右枝のノードを保存
       let right = Address::new(n.right.i, n.right.j, position);
-      let hash = left.hash.combine(&right_hash);
+      let hash = left.hash.combine(n.node.j, &right_hash);
       let node = MetaInfo::new(Address::new(n.node.i, n.node.j, position), hash);
       let inode = INode::new(node, left.address, right);
       inodes.push(inode);
@@ -731,11 +736,11 @@ impl StratumSample {
       if contains(il, jl, self.leaf.i) {
         let left = self.compute_hash(il, jl)?;
         let right = self.witnesses.get(&(ir, jr)).unwrap();
-        Ok(left.combine(right))
+        Ok(left.combine(j, right))
       } else if contains(ir, jr, self.leaf.i) {
         let left = self.witnesses.get(&(il, jl)).unwrap();
         let right = self.compute_hash(ir, jr)?;
-        Ok(left.combine(&right))
+        Ok(left.combine(j, &right))
       } else {
         Err(Error::SampleVerificationFailed(format!(
           "The stratum sample structure is incorrect: The leaf node b_{} is not contained",

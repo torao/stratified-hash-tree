@@ -85,7 +85,7 @@ pub fn report<T: AsRef<[u8]>>(cursor: &mut std::io::Cursor<T>) -> Result<()> {
       );
       let hl = hashes.get(&(*left_i, *left_j));
       let hr = hashes.get(&(i, prev_j));
-      let h = hl.and_then(|hl| hr.map(|hr| hl.combine(hr)));
+      let h = hl.and_then(|hl| hr.map(|hr| hl.combine(*left_j, hr)));
       let msg = format!(
         "hash({} || {}) = {}",
         hl.map(|hl| hex(&hl.value)).unwrap_or_default(),
@@ -112,7 +112,7 @@ pub fn report<T: AsRef<[u8]>>(cursor: &mut std::io::Cursor<T>) -> Result<()> {
       "  HASH   : {} ({} bytes) {}",
       hex(&hash),
       hash.len(),
-      eval(Hash::from_bytes(&payload) == Hash::new(hash))
+      eval(Hash::from_bytes(0, &payload) == Hash::new(hash))
     );
     println!("OFFSET   : {} {}", offset, eval(trailer_position - offset as u64 == position));
     println!("CHECKSUM : {} {}", hex(&checksum.to_le_bytes()), eval(checksum == actual_checksum));
